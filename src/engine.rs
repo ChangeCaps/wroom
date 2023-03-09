@@ -61,6 +61,10 @@ impl AudioEngine {
         self.tracks.take()
     }
 
+    pub fn is_on_beat(&self) -> bool {
+        self.beat() % 1.0 < 0.001
+    }
+
     pub fn set_bpm(&self, bpm: u64) {
         self.bpm.store(bpm, Ordering::Release);
     }

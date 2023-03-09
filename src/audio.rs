@@ -7,7 +7,8 @@ use std::{
 use anyhow::anyhow;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    BufferSize, Device, Host, HostId, SampleRate, Stream, StreamConfig, SupportedBufferSize,
+    BufferSize, Device, Host, HostId, InputCallbackInfo, OutputCallbackInfo, SampleRate, Stream,
+    StreamConfig, SupportedBufferSize,
 };
 use ringbuf::HeapRb;
 
@@ -404,11 +405,13 @@ impl AudioSettings {
             prod.push(0.0).unwrap();
         }
 
-        let error = |_err| {};
+        let error = |err| {
+            eprintln!("an error occurred on stream: {}", err);
+        };
 
         let input_stream = input_device.build_input_stream(
             &input_config,
-            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            move |data: &[f32], _: &InputCallbackInfo| {
                 for &sample in data {
                     let _ = prod.push(sample);
                 }
@@ -421,14 +424,17 @@ impl AudioSettings {
         let mut tracks = tracks.clone();
         let mut recording = Vec::new();
         let mut channel = 0;
+        let mut last_feedback = 0.0;
 
-        let data = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            // if tracks have been updated, use them
-            if let Some(new_tracks) = engine.take_tracks() {
-                tracks = new_tracks;
-            }
-
+        let data = move |data: &mut [f32], _: &OutputCallbackInfo| {
             for target in data {
+                if engine.is_on_beat() {
+                    // if tracks have been updated, use them
+                    if let Some(new_tracks) = engine.take_tracks() {
+                        tracks = new_tracks;
+                    }
+                }
+
                 channel += 1;
 
                 if channel == input_channels {
@@ -436,7 +442,8 @@ impl AudioSettings {
                     channel = 0;
                 }
 
-                let feedback = cons.pop().unwrap_or(0.0);
+                let feedback = cons.pop().unwrap_or(last_feedback);
+                last_feedback = feedback;
                 recording.push(feedback);
 
                 *target = get_sample(&engine, &tracks, channel as u64, feedback);
@@ -465,7 +472,7 @@ impl AudioSettings {
 }
 
 fn metronome(time: f32) -> f32 {
-    (time * 880.0).sin() * (1.0 - time * 2.0).max(0.0) * 0.5
+    (time * 880.0).sin() * (1.0 - time * 2.0).clamp(0.0, 1.0) * 0.5
 }
 
 fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32) -> f32 {
@@ -476,9 +483,12 @@ fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32
     sample += feedback;
 
     // add in the metronome
+
     if engine.metronome() {
         sample += metronome(beat_offset);
     }
+
+    let sample_index = engine.sample() as usize;
 
     // add in the tracks
     for track in tracks.iter() {
@@ -486,7 +496,7 @@ fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32
             continue;
         };
 
-        let mut track_sample = clip.sample(engine.sample() as usize, channel as usize);
+        let mut track_sample = clip.sample(sample_index, channel as usize);
         track_sample *= track.volume_factor();
 
         sample += track_sample;
