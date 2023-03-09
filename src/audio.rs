@@ -368,8 +368,6 @@ impl AudioSettings {
         engine: Arc<AudioEngine>,
         tracks: &Tracks,
     ) -> anyhow::Result<(Stream, Stream)> {
-        gag!();
-
         let input_device = self.get_input_device().ok_or(anyhow!("no input device"))?;
         let output_device = self
             .get_output_device()
@@ -394,9 +392,8 @@ impl AudioSettings {
             buffer_size,
         };
 
-        if input_channels != output_channels {
-            return Err(anyhow!("input and output channels must match"));
-        }
+        let is_mono = input_channels != output_channels;
+        let feedback_channels = if is_mono { 1 } else { input_channels };
 
         let buffer_size = input_channels as u32 * sample_rate.0 * self.delay / 1000;
         let (mut prod, mut cons) = HeapRb::new(buffer_size as usize * 2).split();
@@ -409,11 +406,26 @@ impl AudioSettings {
             eprintln!("an error occurred on stream: {}", err);
         };
 
+        let mut channel = 0;
+        let mut average = 0.0;
+
         let input_stream = input_device.build_input_stream(
             &input_config,
             move |data: &[f32], _: &InputCallbackInfo| {
                 for &sample in data {
-                    let _ = prod.push(sample);
+                    if !is_mono {
+                        let _ = prod.push(sample);
+                        continue;
+                    }
+
+                    average += sample;
+                    channel += 1;
+
+                    if channel == input_channels {
+                        prod.push(average / input_channels as f32).unwrap();
+                        average = 0.0;
+                        channel = 0;
+                    }
                 }
             },
             error,
@@ -424,6 +436,7 @@ impl AudioSettings {
         let mut tracks = tracks.clone();
         let mut recording = Vec::new();
         let mut channel = 0;
+        let mut feedback = 0.0;
         let mut last_feedback = 0.0;
 
         let data = move |data: &mut [f32], _: &OutputCallbackInfo| {
@@ -437,22 +450,30 @@ impl AudioSettings {
 
                 channel += 1;
 
-                if channel == input_channels {
+                if !is_mono {
+                    feedback = cons.pop().unwrap_or(last_feedback);
+                    last_feedback = feedback;
+                    recording.push(feedback);
+                }
+
+                if channel == output_channels {
+                    if is_mono {
+                        feedback = cons.pop().unwrap_or(last_feedback);
+                        last_feedback = feedback;
+                        recording.push(feedback);
+                    }
+
                     engine.sample.fetch_add(1, Ordering::AcqRel);
                     channel = 0;
                 }
 
-                let feedback = cons.pop().unwrap_or(last_feedback);
-                last_feedback = feedback;
-                recording.push(feedback);
-
-                *target = get_sample(&engine, &tracks, channel as u64, feedback);
+                *target = get_sample(&engine, &tracks, channel, feedback_channels, feedback);
 
                 if engine.should_loop() {
                     engine.set_sample(0);
 
                     let clip = Clip {
-                        channels: input_channels,
+                        channels: feedback_channels,
                         sample_rate,
                         samples: Arc::from(mem::take(&mut recording)),
                     };
@@ -472,12 +493,20 @@ impl AudioSettings {
 }
 
 fn metronome(time: f32) -> f32 {
-    (time * 880.0).sin() * (1.0 - time * 2.0).clamp(0.0, 1.0) * 0.5
+    const A6: f32 = 1760.0;
+
+    (time * A6).sin() * (1.0 - time * 2.0).clamp(0.0, 1.0) * 0.5
 }
 
-fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32) -> f32 {
+fn get_sample(
+    engine: &AudioEngine,
+    tracks: &Tracks,
+    channel: u16,
+    channels: u16,
+    feedback: f32,
+) -> f32 {
     let mut sample = 0.0;
-    let beat_offset = engine.beat().fract();
+    let beat_offset = engine.beat().fract() / engine.bps();
 
     // add in the feedback
     sample += feedback;
@@ -488,7 +517,7 @@ fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32
         sample += metronome(beat_offset);
     }
 
-    let sample_index = engine.sample() as usize;
+    let sample_index = engine.sample();
 
     // add in the tracks
     for track in tracks.iter() {
@@ -496,7 +525,12 @@ fn get_sample(engine: &AudioEngine, tracks: &Tracks, channel: u64, feedback: f32
             continue;
         };
 
-        let mut track_sample = clip.sample(sample_index, channel as usize);
+        let mut track_sample = if clip.channels == channels {
+            clip.sample(sample_index, channel)
+        } else {
+            clip.average_sample(sample_index)
+        };
+
         track_sample *= track.volume_factor();
 
         sample += track_sample;

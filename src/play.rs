@@ -235,8 +235,8 @@ impl App {
 
         if let Some(ref clip) = track.clip {
             let mut sample = 0.0f32;
-            for i in 0..512 {
-                let s = clip.average_sample(sample_index as usize + i);
+            for i in 0..1024 {
+                let s = clip.average_sample(sample_index as u64 + i);
                 sample = sample.max(s.abs());
             }
 

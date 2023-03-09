@@ -37,6 +37,10 @@ impl AudioEngine {
         self.bpm.load(Ordering::Acquire)
     }
 
+    pub fn bps(&self) -> f32 {
+        self.bpm() as f32 / 60.0
+    }
+
     pub fn beats(&self) -> u64 {
         self.beats.load(Ordering::Acquire)
     }

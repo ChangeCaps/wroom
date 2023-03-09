@@ -179,7 +179,13 @@ impl App {
             }
             EditMode::RecordTrack => {
                 if let Some(clip) = self.audio.get_clip() {
-                    self.audio.tracks[index].clip = Some(clip);
+                    if let Some(ref mut current_clip) = self.audio.tracks[index].clip {
+                        let new_clip = current_clip.add(&clip, 1.0);
+                        self.audio.tracks[index].clip = Some(new_clip);
+                    } else {
+                        self.audio.tracks[index].clip = Some(clip);
+                    }
+
                     self.audio.update_tracks();
                 }
 
