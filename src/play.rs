@@ -26,7 +26,7 @@ impl App {
         let chunks = Layout::default()
             .margin(1)
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(7), Constraint::Min(1)])
+            .constraints([Constraint::Length(8), Constraint::Min(1)])
             .split(area);
 
         self.render_beat(frame, chunks[0]);
@@ -118,8 +118,9 @@ impl App {
         let color = RAINBOW[half_beat % RAINBOW.len()];
 
         let beat = self.audio.engine.beat().round() as u64;
-        let data = [("", beat)];
+        let data = [("+====+", beat)];
         let bar = BarChart::default()
+            .block(Block::default().borders(Borders::ALL))
             .data(&data)
             .bar_width(6)
             .bar_gap(0)
