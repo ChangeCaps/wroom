@@ -28,7 +28,7 @@ impl Clip {
 
     fn fade_factor(&self, index: u64) -> f32 {
         let frame_count = self.frame_count();
-        let fade_samples = frame_count * self.channels as u64 / 1000;
+        let fade_samples = frame_count * self.channels as u64 / 10000;
         if index < fade_samples {
             index as f32 / fade_samples as f32
         } else if index > frame_count - fade_samples {

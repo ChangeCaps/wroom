@@ -191,6 +191,7 @@ pub struct AudioSettings {
     pub buffer_sizes: Vec<u32>,
     pub buffer_size: Option<usize>,
     pub delay: u32,
+    pub force_mono: bool,
 }
 
 impl AudioSettings {
@@ -212,6 +213,7 @@ impl AudioSettings {
             buffer_sizes: Vec::new(),
             buffer_size: None,
             delay: 15,
+            force_mono: false,
         }
     }
 
@@ -392,10 +394,10 @@ impl AudioSettings {
             buffer_size,
         };
 
-        let is_mono = input_channels != output_channels;
+        let is_mono = input_channels != output_channels || self.force_mono;
         let feedback_channels = if is_mono { 1 } else { input_channels };
 
-        let buffer_size = input_channels as u32 * sample_rate.0 * self.delay / 1000;
+        let buffer_size = feedback_channels as u32 * sample_rate.0 * self.delay / 1000;
         let (mut prod, mut cons) = HeapRb::new(buffer_size as usize * 2).split();
 
         for _ in 0..buffer_size {

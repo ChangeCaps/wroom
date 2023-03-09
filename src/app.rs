@@ -207,6 +207,10 @@ impl App {
             KeyCode::Char('r') => self.edit_mode = EditMode::SampleRate,
             KeyCode::Char('b') => self.edit_mode = EditMode::BufferSize,
             KeyCode::Char('d') => self.edit_mode = EditMode::Delay,
+            KeyCode::Char('m') => {
+                self.audio.settings.force_mono = !self.audio.settings.force_mono;
+                self.audio.launch_streams();
+            }
             _ => {}
         }
     }
@@ -306,8 +310,22 @@ impl App {
 
         self.render_sample_rate_select(frame, chunks[0]);
         self.render_buffer_size_select(frame, chunks[1]);
-        self.render_delay_select(frame, chunks[2]);
+        self.render_delay_mono_bar(frame, chunks[2]);
         self.render_error(frame, chunks[3]);
+    }
+
+    pub fn render_delay_mono_bar<B: Backend>(&mut self, frame: &mut Frame<B>, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(1),
+            ])
+            .split(area);
+
+        self.render_delay_select(frame, chunks[0]);
+        self.render_mono_select(frame, chunks[1]);
     }
 
     pub fn render_sample_rate_select<B: Backend>(&mut self, frame: &mut Frame<B>, area: Rect) {
@@ -376,6 +394,22 @@ impl App {
             .block(block);
 
         area.height = 3;
+        frame.render_widget(paragraph, area);
+    }
+
+    pub fn render_mono_select<B: Backend>(&mut self, frame: &mut Frame<B>, area: Rect) {
+        let block = Block::default().borders(Borders::ALL).title("Mono 'm'");
+
+        let text = if self.audio.settings.force_mono {
+            "On"
+        } else {
+            "Off"
+        };
+
+        let paragraph = Paragraph::new(text)
+            .alignment(Alignment::Right)
+            .block(block);
+
         frame.render_widget(paragraph, area);
     }
 
