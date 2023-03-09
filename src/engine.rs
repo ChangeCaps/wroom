@@ -62,7 +62,7 @@ impl AudioEngine {
     }
 
     pub fn is_on_beat(&self) -> bool {
-        self.beat() % 1.0 < 0.001
+        self.beat() % 1.0 < 0.25
     }
 
     pub fn set_bpm(&self, bpm: u64) {
